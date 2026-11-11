@@ -33,6 +33,7 @@ impl CliAgentRunner {
             .arg(&self.command.program)
             .args(&self.command.arguments)
             .arg(prompt);
+        remove_claude_session_markers(&mut process);
         process
     }
 
@@ -40,6 +41,7 @@ impl CliAgentRunner {
     fn build_process(&self, prompt: &str) -> Command {
         let mut process = Command::new(&self.command.program);
         process.args(&self.command.arguments).arg(prompt);
+        remove_claude_session_markers(&mut process);
         process
     }
 }
@@ -62,6 +64,12 @@ impl AgentRunner for CliAgentRunner {
             &output.stderr,
         )
     }
+}
+
+/// Penna may be started from inside a Claude Code session, which would make the agent refuse to run.
+fn remove_claude_session_markers(process: &mut Command) {
+    process.env_remove("CLAUDECODE");
+    process.env_remove("CLAUDE_CODE_ENTRYPOINT");
 }
 
 fn interpret_output(
@@ -105,6 +113,15 @@ mod tests {
             runner().build_prompt("i has a dog"),
             "Fix this.\n\ni has a dog"
         );
+    }
+
+    #[test]
+    fn the_agent_does_not_inherit_the_claude_session_marker() {
+        let process = runner().build_process("prompt");
+        let removed = process
+            .get_envs()
+            .any(|(name, value)| name == "CLAUDECODE" && value.is_none());
+        assert!(removed);
     }
 
     #[test]

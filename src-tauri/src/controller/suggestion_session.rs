@@ -2,6 +2,11 @@ use std::sync::Mutex;
 
 use crate::model::selection::SelectionSnapshot;
 
+pub struct Replacement {
+    pub process_id: i32,
+    pub text: String,
+}
+
 pub struct SuggestionRequest {
     pub generation: u64,
     pub snapshot: SelectionSnapshot,
@@ -66,8 +71,11 @@ impl SuggestionSession {
         true
     }
 
-    pub fn take_correction(&self) -> Option<String> {
-        self.locked().correction.take()
+    pub fn take_replacement(&self) -> Option<Replacement> {
+        let mut data = self.locked();
+        let process_id = data.snapshot.as_ref()?.process_id;
+        let text = data.correction.take()?;
+        Some(Replacement { process_id, text })
     }
 
     pub fn discard_suggestion(&self) {
@@ -84,6 +92,7 @@ mod tests {
 
     fn snapshot() -> SelectionSnapshot {
         SelectionSnapshot {
+            process_id: 7,
             text: "i has a dog".to_string(),
             anchor: ScreenPoint { x: 1.0, y: 2.0 },
         }
@@ -100,8 +109,10 @@ mod tests {
         session.remember_selection(snapshot());
         let request = session.begin_suggestion().unwrap();
         assert!(session.store_correction(request.generation, "I have a dog"));
-        assert_eq!(session.take_correction().as_deref(), Some("I have a dog"));
-        assert_eq!(session.take_correction(), None);
+        let replacement = session.take_replacement().unwrap();
+        assert_eq!(replacement.text, "I have a dog");
+        assert_eq!(replacement.process_id, 7);
+        assert!(session.take_replacement().is_none());
     }
 
     #[test]
@@ -111,7 +122,7 @@ mod tests {
         let request = session.begin_suggestion().unwrap();
         session.forget_selection();
         assert!(!session.store_correction(request.generation, "I have a dog"));
-        assert_eq!(session.take_correction(), None);
+        assert!(session.take_replacement().is_none());
     }
 
     #[test]

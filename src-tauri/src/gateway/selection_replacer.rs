@@ -9,10 +9,11 @@ use tauri::AppHandle;
 use crate::model::error::{PennaError, PennaResult};
 
 const CLIPBOARD_SETTLE_DELAY: Duration = Duration::from_millis(150);
+const ACTIVATION_DELAY: Duration = Duration::from_millis(250);
 const MAIN_THREAD_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub trait SelectionReplacer: Send + Sync {
-    fn replace_selection(&self, text: &str) -> PennaResult<()>;
+    fn replace_selection(&self, target_process_id: i32, text: &str) -> PennaResult<()>;
 }
 
 /// Replaces the selection of the focused app by pasting through the clipboard.
@@ -44,10 +45,24 @@ impl ClipboardSelectionReplacer {
 }
 
 impl SelectionReplacer for ClipboardSelectionReplacer {
-    fn replace_selection(&self, text: &str) -> PennaResult<()> {
+    fn replace_selection(&self, target_process_id: i32, text: &str) -> PennaResult<()> {
         let text = text.to_string();
-        self.run_on_main_thread(move || paste_through_clipboard(&text))
+        self.run_on_main_thread(move || {
+            bring_to_front(target_process_id)?;
+            thread::sleep(ACTIVATION_DELAY);
+            paste_through_clipboard(&text)
+        })
     }
+}
+
+#[cfg(target_os = "macos")]
+fn bring_to_front(process_id: i32) -> PennaResult<()> {
+    super::accessibility_selection_reader::bring_application_to_front(process_id)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn bring_to_front(_process_id: i32) -> PennaResult<()> {
+    Ok(())
 }
 
 fn paste_through_clipboard(text: &str) -> PennaResult<()> {

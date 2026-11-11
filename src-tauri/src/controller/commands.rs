@@ -41,16 +41,18 @@ pub fn accept_suggestion(
     session: State<Arc<SuggestionSession>>,
     service: State<Arc<CorrectionService>>,
 ) -> PennaResult<()> {
-    let Some(corrected) = session.take_correction() else {
+    let Some(replacement) = session.take_replacement() else {
         tracing::warn!("accept was requested without a correction");
         return Ok(());
     };
     overlay::hide_popup(&app)?;
     let service = service.inner().clone();
-    thread::spawn(move || match service.apply(&corrected) {
-        Ok(()) => tracing::info!("selection replaced with the correction"),
-        Err(error) => tracing::error!(%error, "could not replace the selection"),
-    });
+    thread::spawn(
+        move || match service.apply(replacement.process_id, &replacement.text) {
+            Ok(()) => tracing::info!("selection replaced with the correction"),
+            Err(error) => tracing::error!(%error, "could not replace the selection"),
+        },
+    );
     Ok(())
 }
 

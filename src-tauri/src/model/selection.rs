@@ -6,6 +6,7 @@ pub struct ScreenPoint {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectionSnapshot {
+    pub process_id: i32,
     pub text: String,
     pub anchor: ScreenPoint,
 }
@@ -14,5 +15,5 @@ pub struct SelectionSnapshot {
 pub enum SelectionReading {
     Selected(SelectionSnapshot),
     NothingSelected,
-    OwnApplication,
+    Indeterminate,
 }

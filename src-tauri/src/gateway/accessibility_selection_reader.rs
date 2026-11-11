@@ -4,11 +4,12 @@ use std::ptr;
 
 use accessibility_sys::{
     kAXBoundsForRangeParameterizedAttribute, kAXErrorSuccess, kAXFocusedApplicationAttribute,
-    kAXFocusedUIElementAttribute, kAXSelectedTextAttribute, kAXSelectedTextRangeAttribute,
-    kAXTrustedCheckOptionPrompt, kAXValueTypeCGRect, AXIsProcessTrusted,
-    AXIsProcessTrustedWithOptions, AXUIElementCopyAttributeValue,
-    AXUIElementCopyParameterizedAttributeValue, AXUIElementCreateSystemWide, AXUIElementGetPid,
-    AXUIElementRef, AXUIElementSetAttributeValue, AXValueGetValue, AXValueRef,
+    kAXFocusedUIElementAttribute, kAXFrontmostAttribute, kAXSelectedTextAttribute,
+    kAXSelectedTextRangeAttribute, kAXTrustedCheckOptionPrompt, kAXValueTypeCGRect,
+    AXIsProcessTrusted, AXIsProcessTrustedWithOptions, AXUIElementCopyAttributeValue,
+    AXUIElementCopyParameterizedAttributeValue, AXUIElementCreateApplication,
+    AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, AXUIElementSetAttributeValue,
+    AXValueGetValue, AXValueRef,
 };
 use core_foundation::base::{CFType, CFTypeRef, TCFType};
 use core_foundation::boolean::CFBoolean;
@@ -33,11 +34,21 @@ pub fn request_permission_prompt() -> bool {
     unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) }
 }
 
+pub fn bring_application_to_front(process_id: i32) -> PennaResult<()> {
+    let application = AxElement::application(process_id);
+    let status = application.set_boolean(kAXFrontmostAttribute, true);
+    if status != kAXErrorSuccess {
+        return Err(PennaError::ApplicationActivation { process_id, status });
+    }
+    Ok(())
+}
+
 /// Reads the text selected in the focused app through the macOS Accessibility API,
 /// without touching the clipboard.
 #[derive(Default)]
 pub struct AccessibilitySelectionReader {
     prepared_processes: HashSet<i32>,
+    last_diagnostic: Option<String>,
 }
 
 impl AccessibilitySelectionReader {
@@ -45,6 +56,23 @@ impl AccessibilitySelectionReader {
         if self.prepared_processes.insert(process_id) {
             application.enable_browser_accessibility();
         }
+    }
+
+    fn log_diagnostic_once(&mut self, diagnostic: String) {
+        if self.last_diagnostic.as_deref() != Some(diagnostic.as_str()) {
+            tracing::info!(%diagnostic, "no selection could be read");
+            self.last_diagnostic = Some(diagnostic);
+        }
+    }
+
+    fn indeterminate(&mut self, diagnostic: String) -> PennaResult<SelectionReading> {
+        self.log_diagnostic_once(diagnostic);
+        Ok(SelectionReading::Indeterminate)
+    }
+
+    fn nothing_selected(&mut self, diagnostic: String) -> PennaResult<SelectionReading> {
+        self.log_diagnostic_once(diagnostic);
+        Ok(SelectionReading::NothingSelected)
     }
 }
 
@@ -55,22 +83,26 @@ impl SelectionReader for AccessibilitySelectionReader {
         }
         let system = AxElement::system_wide();
         let Some(application) = system.element(kAXFocusedApplicationAttribute) else {
-            return Ok(SelectionReading::NothingSelected);
+            return self.indeterminate("no focused application".to_string());
         };
         let Some(process_id) = application.process_id() else {
-            return Ok(SelectionReading::NothingSelected);
+            return self.indeterminate("the focused application has no process id".to_string());
         };
         if process_id == std::process::id() as i32 {
-            return Ok(SelectionReading::OwnApplication);
+            return Ok(SelectionReading::Indeterminate);
         }
         self.prepare_application_once(process_id, &application);
         let Some(focused) = application.element(kAXFocusedUIElementAttribute) else {
-            return Ok(SelectionReading::NothingSelected);
+            return self
+                .nothing_selected(format!("process {process_id} exposes no focused element"));
         };
         let Some(text) = focused.text(kAXSelectedTextAttribute) else {
-            return Ok(SelectionReading::NothingSelected);
+            return self.nothing_selected(format!(
+                "process {process_id} focused element has no selected text attribute"
+            ));
         };
         if text.trim().is_empty() {
+            self.last_diagnostic = None;
             return Ok(SelectionReading::NothingSelected);
         }
         let anchor = match focused.selection_bounds() {
@@ -78,6 +110,7 @@ impl SelectionReader for AccessibilitySelectionReader {
             _ => mouse_location()?,
         };
         Ok(SelectionReading::Selected(SelectionSnapshot {
+            process_id,
             text,
             anchor,
         }))
@@ -112,6 +145,12 @@ impl Bounds {
 struct AxElement(CFType);
 
 impl AxElement {
+    fn application(process_id: i32) -> Self {
+        Self(unsafe {
+            CFType::wrap_under_create_rule(AXUIElementCreateApplication(process_id) as CFTypeRef)
+        })
+    }
+
     fn system_wide() -> Self {
         Self(unsafe { CFType::wrap_under_create_rule(AXUIElementCreateSystemWide() as CFTypeRef) })
     }
@@ -177,15 +216,24 @@ impl AxElement {
         read.then_some(bounds)
     }
 
+    fn set_boolean(&self, name: &str, value: bool) -> i32 {
+        let value = if value {
+            CFBoolean::true_value()
+        } else {
+            CFBoolean::false_value()
+        };
+        unsafe {
+            AXUIElementSetAttributeValue(
+                self.raw(),
+                CFString::new(name).as_concrete_TypeRef(),
+                value.as_CFTypeRef(),
+            )
+        }
+    }
+
     fn enable_browser_accessibility(&self) {
         for name in BROWSER_ACCESSIBILITY_ATTRIBUTES {
-            let status = unsafe {
-                AXUIElementSetAttributeValue(
-                    self.raw(),
-                    CFString::new(name).as_concrete_TypeRef(),
-                    CFBoolean::true_value().as_CFTypeRef(),
-                )
-            };
+            let status = self.set_boolean(name, true);
             if status != kAXErrorSuccess {
                 tracing::debug!(
                     attribute = name,

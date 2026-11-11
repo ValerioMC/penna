@@ -27,6 +27,8 @@ pub enum PennaError {
     MainThreadTimeout,
     #[error("the Accessibility permission is not granted to Penna")]
     AccessibilityNotGranted,
+    #[error("could not bring the application {process_id} to the front (status {status})")]
+    ApplicationActivation { process_id: i32, status: i32 },
     #[error("the mouse location is not available")]
     MouseLocationUnavailable,
     #[error("file access failure: {0}")]

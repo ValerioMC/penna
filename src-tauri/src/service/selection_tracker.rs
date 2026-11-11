@@ -18,7 +18,7 @@ pub struct SelectionTracker {
 impl SelectionTracker {
     pub fn observe(&mut self, reading: SelectionReading) -> SelectionChange {
         match reading {
-            SelectionReading::OwnApplication => SelectionChange::Unchanged,
+            SelectionReading::Indeterminate => SelectionChange::Unchanged,
             SelectionReading::NothingSelected => self.clear(),
             SelectionReading::Selected(snapshot) if snapshot.text.trim().is_empty() => self.clear(),
             SelectionReading::Selected(snapshot) => self.observe_selected(snapshot),
@@ -53,6 +53,7 @@ mod tests {
 
     fn selected(text: &str) -> SelectionReading {
         SelectionReading::Selected(SelectionSnapshot {
+            process_id: 1,
             text: text.to_string(),
             anchor: ScreenPoint { x: 10.0, y: 20.0 },
         })
@@ -117,12 +118,12 @@ mod tests {
     }
 
     #[test]
-    fn readings_of_penna_itself_change_nothing() {
+    fn readings_that_cannot_tell_change_nothing() {
         let mut tracker = SelectionTracker::default();
         tracker.observe(selected("hello"));
         tracker.observe(selected("hello"));
         assert_eq!(
-            tracker.observe(SelectionReading::OwnApplication),
+            tracker.observe(SelectionReading::Indeterminate),
             SelectionChange::Unchanged
         );
     }

@@ -26,7 +26,7 @@ fn watch(app: &AppHandle, mut reader: impl SelectionReader) {
             .read_selection()
             .and_then(|reading| apply_change(app, &session, tracker.observe(reading)));
         match outcome {
-            Ok(()) => last_failure = None,
+            Ok(()) => report_recovery(&mut last_failure),
             Err(error) => report_new_failure(&mut last_failure, &error),
         }
     }
@@ -62,5 +62,11 @@ fn report_new_failure(last_failure: &mut Option<String>, error: &PennaError) {
     if last_failure.as_deref() != Some(message.as_str()) {
         tracing::warn!(%error, "selection watching is failing");
         *last_failure = Some(message);
+    }
+}
+
+fn report_recovery(last_failure: &mut Option<String>) {
+    if last_failure.take().is_some() {
+        tracing::info!("selection watching works again");
     }
 }

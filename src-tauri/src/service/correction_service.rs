@@ -18,11 +18,12 @@ impl CorrectionService {
         self.agent.correct(original)
     }
 
-    pub fn apply(&self, corrected: &str) -> PennaResult<()> {
+    pub fn apply(&self, target_process_id: i32, corrected: &str) -> PennaResult<()> {
         if corrected.trim().is_empty() {
             return Err(PennaError::EmptyRewrite);
         }
-        self.replacer.replace_selection(corrected)
+        self.replacer
+            .replace_selection(target_process_id, corrected)
     }
 }
 
@@ -42,12 +43,15 @@ mod tests {
 
     #[derive(Default)]
     struct FakeReplacer {
-        replacements: Mutex<Vec<String>>,
+        replacements: Mutex<Vec<(i32, String)>>,
     }
 
     impl SelectionReplacer for FakeReplacer {
-        fn replace_selection(&self, text: &str) -> PennaResult<()> {
-            self.replacements.lock().unwrap().push(text.to_string());
+        fn replace_selection(&self, target_process_id: i32, text: &str) -> PennaResult<()> {
+            self.replacements
+                .lock()
+                .unwrap()
+                .push((target_process_id, text.to_string()));
             Ok(())
         }
     }
@@ -66,19 +70,19 @@ mod tests {
     }
 
     #[test]
-    fn apply_replaces_the_selection_with_the_corrected_text() {
+    fn apply_replaces_the_selection_of_the_target_application() {
         let replacer = Arc::new(FakeReplacer::default());
-        service(&replacer).apply("I have a dog.").unwrap();
+        service(&replacer).apply(42, "I have a dog.").unwrap();
         assert_eq!(
             *replacer.replacements.lock().unwrap(),
-            vec!["I have a dog."]
+            vec![(42, "I have a dog.".to_string())]
         );
     }
 
     #[test]
     fn apply_refuses_blank_text_so_the_selection_is_never_erased() {
         let replacer = Arc::new(FakeReplacer::default());
-        let error = service(&replacer).apply("  \n").unwrap_err();
+        let error = service(&replacer).apply(42, "  \n").unwrap_err();
         assert!(matches!(error, PennaError::EmptyRewrite));
         assert!(replacer.replacements.lock().unwrap().is_empty());
     }
