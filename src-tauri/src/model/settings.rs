@@ -1,5 +1,3 @@
-use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
-
 #[derive(Debug, Clone)]
 pub struct AgentCommand {
     pub program: String,
@@ -10,7 +8,6 @@ pub struct AgentCommand {
 pub struct Settings {
     pub agent: AgentCommand,
     pub instruction: String,
-    pub shortcut: Shortcut,
 }
 
 impl Default for Settings {
@@ -25,7 +22,6 @@ impl Default for Settings {
                 author: change only what is wrong and do not rephrase what is already correct. \
                 Reply with the corrected text only, without quotes or explanations."
                 .to_string(),
-            shortcut: Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyP),
         }
     }
 }

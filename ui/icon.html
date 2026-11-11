@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Penna</title>
+    <style>
+      html, body { margin: 0; background: transparent; overflow: hidden; }
+      button {
+        all: unset;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: #ffffff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        cursor: pointer;
+      }
+      button:hover { background: #e8faf3; }
+      img { width: 26px; height: 26px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <button id="open" title="Check with Penna"><img src="logo.png" alt="Penna" /></button>
+    <script>
+      document.getElementById("open").addEventListener("click", () => {
+        window.__TAURI__.core.invoke("open_suggestion").catch(console.error);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Lets the icon and popup windows receive events",
+  "windows": ["icon", "popup"],
+  "permissions": ["core:event:default"]
+}

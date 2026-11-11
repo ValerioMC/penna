@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Penna</title>
+    <style>
+      :root { color-scheme: light dark; --card: #ffffff; --text: #1d2b2a; --muted: #6b7b79; --accent: #0fb58a; --border: #d7e3e0; }
+      @media (prefers-color-scheme: dark) {
+        :root { --card: #1f2927; --text: #eaf4f2; --muted: #9db2ae; --border: #34443f; }
+      }
+      html, body { margin: 0; height: 100%; background: transparent; font: 13px/1.45 -apple-system, system-ui, sans-serif; color: var(--text); }
+      .card {
+        box-sizing: border-box;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+      }
+      header { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+      header img { width: 20px; height: 20px; }
+      .body { flex: 1; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+      .body .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+      .body .corrected { margin: 2px 0 10px; font-size: 14px; }
+      .body .original { margin: 2px 0 0; color: var(--muted); }
+      .message { color: var(--muted); }
+      .error { color: #d4483b; }
+      footer { display: flex; justify-content: flex-end; gap: 8px; }
+      button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #ffffff; font-weight: 600; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <header><img src="logo.png" alt="" /><span>Penna</span></header>
+      <div class="body" id="body"></div>
+      <footer>
+        <button id="dismiss">Dismiss</button>
+        <button id="accept" class="primary" hidden>Accept</button>
+      </footer>
+    </div>
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      const { listen } = window.__TAURI__.event;
+      const body = document.getElementById("body");
+      const acceptButton = document.getElementById("accept");
+
+      function paragraph(className, text) {
+        const element = document.createElement("div");
+        element.className = className;
+        element.textContent = text;
+        return element;
+      }
+
+      function render(state) {
+        body.replaceChildren();
+        acceptButton.hidden = state.state !== "ready";
+        if (state.state === "loading") {
+          body.append(paragraph("message", "Checking your text…"));
+        } else if (state.state === "no-mistakes") {
+          body.append(paragraph("message", "No mistakes found."));
+        } else if (state.state === "failed") {
+          body.append(paragraph("error", state.message));
+        } else if (state.state === "ready") {
+          body.append(
+            paragraph("label", "Suggestion"),
+            paragraph("corrected", state.corrected),
+            paragraph("label", "Original"),
+            paragraph("original", state.original)
+          );
+        }
+      }
+
+      listen("popup-state", (event) => render(event.payload));
+      acceptButton.addEventListener("click", () => invoke("accept_suggestion").catch(console.error));
+      document.getElementById("dismiss").addEventListener("click", () => invoke("dismiss_suggestion").catch(console.error));
+    </script>
+  </body>
+</html>

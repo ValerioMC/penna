@@ -1,8 +1,8 @@
+use serde::{Serialize, Serializer};
+
 #[derive(Debug, thiserror::Error)]
 pub enum PennaError {
-    #[error("no text is selected")]
-    EmptySelection,
-    #[error("the agent returned an empty rewrite")]
+    #[error("the agent returned an empty text")]
     EmptyRewrite,
     #[error("could not start the agent '{program}': {source}")]
     AgentSpawn {
@@ -23,10 +23,22 @@ pub enum PennaError {
     KeyboardInput(#[from] enigo::InputError),
     #[error("desktop runtime failure: {0}")]
     Runtime(#[from] tauri::Error),
-    #[error("global shortcut failure: {0}")]
-    Shortcut(#[from] tauri_plugin_global_shortcut::Error),
     #[error("the main thread did not answer in time")]
     MainThreadTimeout,
+    #[error("the Accessibility permission is not granted to Penna")]
+    AccessibilityNotGranted,
+    #[error("the mouse location is not available")]
+    MouseLocationUnavailable,
+    #[error("file access failure: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("could not start logging: {0}")]
+    Logging(String),
+}
+
+impl Serialize for PennaError {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 pub type PennaResult<T> = Result<T, PennaError>;

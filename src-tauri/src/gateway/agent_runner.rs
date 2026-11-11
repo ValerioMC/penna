@@ -4,7 +4,7 @@ use crate::model::error::{PennaError, PennaResult};
 use crate::model::settings::AgentCommand;
 
 pub trait AgentRunner: Send + Sync {
-    fn rewrite(&self, text: &str) -> PennaResult<String>;
+    fn correct(&self, text: &str) -> PennaResult<String>;
 }
 
 pub struct CliAgentRunner {
@@ -45,7 +45,7 @@ impl CliAgentRunner {
 }
 
 impl AgentRunner for CliAgentRunner {
-    fn rewrite(&self, text: &str) -> PennaResult<String> {
+    fn correct(&self, text: &str) -> PennaResult<String> {
         let output = self
             .build_process(&self.build_prompt(text))
             .stdin(Stdio::null())

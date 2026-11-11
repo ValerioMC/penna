@@ -11,18 +11,17 @@ use crate::model::error::{PennaError, PennaResult};
 const CLIPBOARD_SETTLE_DELAY: Duration = Duration::from_millis(150);
 const MAIN_THREAD_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub trait SelectionGateway: Send + Sync {
-    fn read_selection(&self) -> PennaResult<String>;
+pub trait SelectionReplacer: Send + Sync {
     fn replace_selection(&self, text: &str) -> PennaResult<()>;
 }
 
-/// Reads and replaces the selection of the focused app by simulating copy and paste.
+/// Replaces the selection of the focused app by pasting through the clipboard.
 /// Keyboard simulation runs on the main thread because macOS requires it.
-pub struct ClipboardSelectionGateway {
+pub struct ClipboardSelectionReplacer {
     app: AppHandle,
 }
 
-impl ClipboardSelectionGateway {
+impl ClipboardSelectionReplacer {
     pub fn new(app: AppHandle) -> Self {
         Self { app }
     }
@@ -44,26 +43,11 @@ impl ClipboardSelectionGateway {
     }
 }
 
-impl SelectionGateway for ClipboardSelectionGateway {
-    fn read_selection(&self) -> PennaResult<String> {
-        self.run_on_main_thread(copy_selection_through_clipboard)
-    }
-
+impl SelectionReplacer for ClipboardSelectionReplacer {
     fn replace_selection(&self, text: &str) -> PennaResult<()> {
         let text = text.to_string();
         self.run_on_main_thread(move || paste_through_clipboard(&text))
     }
-}
-
-fn copy_selection_through_clipboard() -> PennaResult<String> {
-    let mut clipboard = Clipboard::new()?;
-    let previous_text = read_text_if_present(&mut clipboard)?;
-    clipboard.clear()?;
-    press_command_with(Key::Unicode('c'))?;
-    thread::sleep(CLIPBOARD_SETTLE_DELAY);
-    let selection = read_text_if_present(&mut clipboard)?.unwrap_or_default();
-    restore_text(&mut clipboard, previous_text)?;
-    Ok(selection)
 }
 
 fn paste_through_clipboard(text: &str) -> PennaResult<()> {
