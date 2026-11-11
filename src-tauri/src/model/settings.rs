@@ -15,7 +15,7 @@ impl Default for Settings {
         Self {
             agent: AgentCommand {
                 program: "claude".to_string(),
-                arguments: vec!["-p".to_string()],
+                arguments: vec!["-p".to_string(), "--model".to_string(), "haiku".to_string()],
             },
             instruction: "Check the following text for spelling, grammar and punctuation mistakes \
                 and correct them. Keep the exact meaning, wording, tone and formatting of the \
