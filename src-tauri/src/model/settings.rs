@@ -45,10 +45,13 @@ impl Default for Settings {
                 program: "claude".to_string(),
                 arguments: agent_arguments(),
             },
-            instruction: "Check the following text for spelling, grammar and punctuation mistakes \
-                and correct them. Keep the exact meaning, wording, tone and formatting of the \
-                author: change only what is wrong and do not rephrase what is already correct. \
-                Reply with the corrected text only, without quotes or explanations."
+            instruction: "Proofread the following text. Correct spelling, grammar and punctuation \
+                mistakes. Also replace a correct but clumsy construction with the simpler natural \
+                one when it is clearly better, such as a verb followed by \"to\" and an infinitive \
+                where the plain -ing form is the usual choice. Keep the meaning, tone, language \
+                and formatting of the author. Never add words or ideas, never change acceptable \
+                punctuation or style choices, and leave sentences that already read naturally \
+                untouched. Reply with the corrected text only, without quotes or explanations."
                 .to_string(),
         }
     }
