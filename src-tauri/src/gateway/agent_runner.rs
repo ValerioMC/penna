@@ -33,7 +33,7 @@ impl CliAgentRunner {
             .arg(&self.command.program)
             .args(&self.command.arguments)
             .arg(prompt);
-        remove_claude_session_markers(&mut process);
+        isolate_from_environment(&mut process);
         process
     }
 
@@ -41,7 +41,7 @@ impl CliAgentRunner {
     fn build_process(&self, prompt: &str) -> Command {
         let mut process = Command::new(&self.command.program);
         process.args(&self.command.arguments).arg(prompt);
-        remove_claude_session_markers(&mut process);
+        isolate_from_environment(&mut process);
         process
     }
 }
@@ -66,8 +66,10 @@ impl AgentRunner for CliAgentRunner {
     }
 }
 
-/// Penna may be started from inside a Claude Code session, which would make the agent refuse to run.
-fn remove_claude_session_markers(process: &mut Command) {
+/// The agent is a child of Penna, so macOS attributes whatever it touches to Penna.
+/// It runs from the temporary directory and without the markers of an enclosing Claude session.
+fn isolate_from_environment(process: &mut Command) {
+    process.current_dir(std::env::temp_dir());
     process.env_remove("CLAUDECODE");
     process.env_remove("CLAUDE_CODE_ENTRYPOINT");
 }
@@ -122,6 +124,15 @@ mod tests {
             .get_envs()
             .any(|(name, value)| name == "CLAUDECODE" && value.is_none());
         assert!(removed);
+    }
+
+    #[test]
+    fn the_agent_runs_from_the_temporary_directory() {
+        let process = runner().build_process("prompt");
+        assert_eq!(
+            process.get_current_dir(),
+            Some(std::env::temp_dir().as_path())
+        );
     }
 
     #[test]
