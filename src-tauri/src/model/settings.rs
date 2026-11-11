@@ -20,9 +20,10 @@ impl Default for Settings {
                 program: "claude".to_string(),
                 arguments: vec!["-p".to_string()],
             },
-            instruction: "Rewrite the following text in correct, natural English. \
-                Fix grammar, spelling and punctuation, and keep the original meaning and tone. \
-                Reply with the rewritten text only, without quotes or explanations."
+            instruction: "Check the following text for spelling, grammar and punctuation mistakes \
+                and correct them. Keep the exact meaning, wording, tone and formatting of the \
+                author: change only what is wrong and do not rephrase what is already correct. \
+                Reply with the corrected text only, without quotes or explanations."
                 .to_string(),
             shortcut: Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyP),
         }
