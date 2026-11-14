@@ -5,6 +5,8 @@ use tauri::{AppHandle, Emitter, State};
 
 use super::overlay::{self, POPUP_LABEL};
 use super::suggestion_session::{SuggestionRequest, SuggestionSession};
+use super::update_notice;
+use crate::gateway::browser_opener;
 use crate::model::error::PennaResult;
 use crate::model::popup_state::PopupState;
 use crate::service::correction_service::CorrectionService;
@@ -63,6 +65,17 @@ pub fn dismiss_suggestion(
 ) -> PennaResult<()> {
     session.discard_suggestion();
     overlay::hide_popup(&app)
+}
+
+#[tauri::command]
+pub fn download_update(app: AppHandle) -> PennaResult<()> {
+    browser_opener::open_latest_download()?;
+    update_notice::close(&app)
+}
+
+#[tauri::command]
+pub fn dismiss_update(app: AppHandle) -> PennaResult<()> {
+    update_notice::close(&app)
 }
 
 fn deliver_correction(

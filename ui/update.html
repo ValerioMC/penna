@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Penna</title>
+    <style>
+      :root { color-scheme: light dark; --card: #ffffff; --text: #1d2b2a; --muted: #566664; --border: #d7e3e0; }
+      @media (prefers-color-scheme: dark) {
+        :root { --card: #1f2927; --text: #eaf4f2; --muted: #9db2ae; --border: #34443f; }
+      }
+      html, body { margin: 0; height: 100%; background: transparent; font: 13px/1.45 -apple-system, system-ui, sans-serif; color: var(--text); }
+      .card {
+        box-sizing: border-box;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+      }
+      header { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+      header img { width: 20px; height: 20px; }
+      .body { flex: 1; color: var(--muted); }
+      footer { display: flex; justify-content: flex-end; gap: 8px; }
+      button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
+      button.primary { background: #0a7a5c; border-color: #0a7a5c; color: #ffffff; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <header><img src="logo.png" alt="" /><span>A new version of Penna is available</span></header>
+      <div class="body" id="body"></div>
+      <footer>
+        <button id="later">Later</button>
+        <button id="download" class="primary">Download</button>
+      </footer>
+    </div>
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      const version = new URLSearchParams(location.search).get("version");
+      document.getElementById("body").textContent = `Penna ${version} is ready to download.`;
+      document.getElementById("download").addEventListener("click", () => invoke("download_update").catch(console.error));
+      document.getElementById("later").addEventListener("click", () => invoke("dismiss_update").catch(console.error));
+    </script>
+  </body>
+</html>

@@ -6,13 +6,17 @@ mod service;
 
 use std::sync::Arc;
 
-use controller::commands::{accept_suggestion, dismiss_suggestion, open_suggestion};
+use controller::commands::{
+    accept_suggestion, dismiss_suggestion, dismiss_update, download_update, open_suggestion,
+};
 use controller::suggestion_session::SuggestionSession;
 use gateway::agent_runner::CliAgentRunner;
+use gateway::release_feed::GithubReleaseFeed;
 use gateway::selection_replacer::ClipboardSelectionReplacer;
 use model::error::PennaResult;
 use model::settings::Settings;
 use service::correction_service::CorrectionService;
+use service::update_service::UpdateService;
 use tauri::{App, AppHandle, Manager};
 
 pub use model::error::PennaError;
@@ -23,16 +27,20 @@ pub fn run() -> PennaResult<()> {
         .invoke_handler(tauri::generate_handler![
             open_suggestion,
             accept_suggestion,
-            dismiss_suggestion
+            dismiss_suggestion,
+            download_update,
+            dismiss_update
         ])
         .setup(move |app| {
             logging::init(app.handle())?;
             hide_dock_icon(app);
             app.manage(build_correction_service(app, &settings));
             app.manage(Arc::new(SuggestionSession::default()));
+            app.manage(Arc::new(UpdateService::new(Arc::new(GithubReleaseFeed))));
             controller::overlay::create_windows(app.handle())?;
             controller::tray::build(app.handle())?;
             start_selection_watching(app.handle());
+            controller::update_notice::spawn_startup_check(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())?;

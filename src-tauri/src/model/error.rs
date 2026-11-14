@@ -35,6 +35,10 @@ pub enum PennaError {
     Io(#[from] std::io::Error),
     #[error("could not start logging: {0}")]
     Logging(String),
+    #[error("could not read the latest release: {0}")]
+    ReleaseFeed(String),
+    #[error("'{0}' is not a version")]
+    InvalidVersion(String),
 }
 
 impl Serialize for PennaError {
