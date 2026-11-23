@@ -11,12 +11,17 @@ use accessibility_sys::{
     AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, AXUIElementSetAttributeValue,
     AXValueGetValue, AXValueRef,
 };
-use core_foundation::base::{CFType, CFTypeRef, TCFType};
+use core_foundation::base::{CFType, CFTypeRef, FromVoid, TCFType};
 use core_foundation::boolean::CFBoolean;
 use core_foundation::dictionary::CFDictionary;
+use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use core_graphics::event::CGEvent;
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+use core_graphics::window::{
+    copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListExcludeDesktopElements,
+    kCGWindowListOptionOnScreenOnly, kCGWindowOwnerPID,
+};
 
 use super::selection_reader::SelectionReader;
 use crate::model::error::{PennaError, PennaResult};
@@ -70,9 +75,9 @@ impl AccessibilitySelectionReader {
         Ok(SelectionReading::Indeterminate)
     }
 
-    fn nothing_selected(&mut self, diagnostic: String) -> PennaResult<SelectionReading> {
+    fn unreadable(&mut self, diagnostic: String) -> PennaResult<SelectionReading> {
         self.log_diagnostic_once(diagnostic);
-        Ok(SelectionReading::NothingSelected)
+        Ok(SelectionReading::Unreadable)
     }
 }
 
@@ -82,7 +87,10 @@ impl SelectionReader for AccessibilitySelectionReader {
             return Err(PennaError::AccessibilityNotGranted);
         }
         let system = AxElement::system_wide();
-        let Some(application) = system.element(kAXFocusedApplicationAttribute) else {
+        let Some(application) = system
+            .element(kAXFocusedApplicationAttribute)
+            .or_else(frontmost_application)
+        else {
             return self.indeterminate("no focused application".to_string());
         };
         let Some(process_id) = application.process_id() else {
@@ -93,11 +101,10 @@ impl SelectionReader for AccessibilitySelectionReader {
         }
         self.prepare_application_once(process_id, &application);
         let Some(focused) = application.element(kAXFocusedUIElementAttribute) else {
-            return self
-                .nothing_selected(format!("process {process_id} exposes no focused element"));
+            return self.unreadable(format!("process {process_id} exposes no focused element"));
         };
         let Some(text) = focused.text(kAXSelectedTextAttribute) else {
-            return self.nothing_selected(format!(
+            return self.unreadable(format!(
                 "process {process_id} focused element has no selected text attribute"
             ));
         };
@@ -243,6 +250,30 @@ impl AxElement {
             }
         }
     }
+}
+
+fn frontmost_application() -> Option<AxElement> {
+    let windows = copy_window_info(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID,
+    )?;
+    let own_process_id = std::process::id() as i32;
+    let layer_key = unsafe { CFString::wrap_under_get_rule(kCGWindowLayer) };
+    let process_id_key = unsafe { CFString::wrap_under_get_rule(kCGWindowOwnerPID) };
+    windows
+        .iter()
+        .filter_map(|entry| {
+            let window = unsafe { CFDictionary::<CFString, CFType>::from_void(*entry) };
+            let layer = number_of(&window, &layer_key)?;
+            let process_id = number_of(&window, &process_id_key)?;
+            (layer == 0 && process_id != own_process_id).then_some(process_id)
+        })
+        .next()
+        .map(AxElement::application)
+}
+
+fn number_of(window: &CFDictionary<CFString, CFType>, key: &CFString) -> Option<i32> {
+    window.find(key)?.downcast::<CFNumber>()?.to_i32()
 }
 
 fn mouse_location() -> PennaResult<ScreenPoint> {

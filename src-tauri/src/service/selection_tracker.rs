@@ -1,5 +1,7 @@
 use crate::model::selection::{SelectionReading, SelectionSnapshot};
 
+const UNREADABLE_READINGS_BEFORE_CLEARING: u32 = 5;
+
 #[derive(Debug, PartialEq)]
 pub enum SelectionChange {
     Appeared(SelectionSnapshot),
@@ -8,21 +10,38 @@ pub enum SelectionChange {
 }
 
 /// Reports a selection only after two consecutive readings agree, so a drag in progress
-/// does not flash the icon, and reports each stable selection once.
+/// does not flash the icon, and reports each stable selection once. Apps such as Teams
+/// intermittently expose no focused element, so only a run of unreadable readings clears it.
 #[derive(Default)]
 pub struct SelectionTracker {
     candidate_text: Option<String>,
     reported_text: Option<String>,
+    consecutive_unreadable_readings: u32,
 }
 
 impl SelectionTracker {
     pub fn observe(&mut self, reading: SelectionReading) -> SelectionChange {
+        if !matches!(
+            reading,
+            SelectionReading::Unreadable | SelectionReading::Indeterminate
+        ) {
+            self.consecutive_unreadable_readings = 0;
+        }
         match reading {
             SelectionReading::Indeterminate => SelectionChange::Unchanged,
+            SelectionReading::Unreadable => self.observe_unreadable(),
             SelectionReading::NothingSelected => self.clear(),
             SelectionReading::Selected(snapshot) if snapshot.text.trim().is_empty() => self.clear(),
             SelectionReading::Selected(snapshot) => self.observe_selected(snapshot),
         }
+    }
+
+    fn observe_unreadable(&mut self) -> SelectionChange {
+        self.consecutive_unreadable_readings += 1;
+        if self.consecutive_unreadable_readings < UNREADABLE_READINGS_BEFORE_CLEARING {
+            return SelectionChange::Unchanged;
+        }
+        self.clear()
     }
 
     fn clear(&mut self) -> SelectionChange {
@@ -106,6 +125,41 @@ mod tests {
         assert_eq!(
             tracker.observe(SelectionReading::NothingSelected),
             SelectionChange::Unchanged
+        );
+    }
+
+    #[test]
+    fn a_short_run_of_unreadable_readings_keeps_the_selection() {
+        let mut tracker = SelectionTracker::default();
+        tracker.observe(selected("hello"));
+        tracker.observe(selected("hello"));
+        for _ in 0..UNREADABLE_READINGS_BEFORE_CLEARING - 1 {
+            assert_eq!(
+                tracker.observe(SelectionReading::Unreadable),
+                SelectionChange::Unchanged
+            );
+        }
+        assert_eq!(
+            tracker.observe(selected("hello")),
+            SelectionChange::Unchanged
+        );
+        assert_eq!(
+            tracker.observe(SelectionReading::Unreadable),
+            SelectionChange::Unchanged
+        );
+    }
+
+    #[test]
+    fn a_long_run_of_unreadable_readings_clears_the_selection() {
+        let mut tracker = SelectionTracker::default();
+        tracker.observe(selected("hello"));
+        tracker.observe(selected("hello"));
+        for _ in 0..UNREADABLE_READINGS_BEFORE_CLEARING - 1 {
+            tracker.observe(SelectionReading::Unreadable);
+        }
+        assert_eq!(
+            tracker.observe(SelectionReading::Unreadable),
+            SelectionChange::Cleared
         );
     }
 

@@ -15,5 +15,6 @@ pub struct SelectionSnapshot {
 pub enum SelectionReading {
     Selected(SelectionSnapshot),
     NothingSelected,
+    Unreadable,
     Indeterminate,
 }
