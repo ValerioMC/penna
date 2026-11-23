@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use crate::model::selection::SelectionSnapshot;
+use crate::service::selection_tracker::SelectionChange;
 
 pub struct Replacement {
     pub process_id: i32,
@@ -17,10 +18,12 @@ struct SessionData {
     generation: u64,
     snapshot: Option<SelectionSnapshot>,
     correction: Option<String>,
+    open_suggestion_text: Option<String>,
 }
 
 /// Holds the selection the icon is shown for and the correction awaiting acceptance.
 /// Each new or discarded selection bumps the generation so a late agent answer is ignored.
+/// A suggestion stays open until dismissed, accepted or replaced by a different selection.
 #[derive(Default)]
 pub struct SuggestionSession {
     data: Mutex<SessionData>,
@@ -38,6 +41,7 @@ impl SuggestionSession {
         data.generation += 1;
         data.snapshot = Some(snapshot);
         data.correction = None;
+        data.open_suggestion_text = None;
     }
 
     pub fn forget_selection(&self) {
@@ -45,6 +49,19 @@ impl SuggestionSession {
         data.generation += 1;
         data.snapshot = None;
         data.correction = None;
+        data.open_suggestion_text = None;
+    }
+
+    pub fn keeps_suggestion_open(&self, change: &SelectionChange) -> bool {
+        let data = self.locked();
+        let Some(open_text) = data.open_suggestion_text.as_deref() else {
+            return false;
+        };
+        match change {
+            SelectionChange::Cleared => true,
+            SelectionChange::Appeared(snapshot) => snapshot.text == open_text,
+            SelectionChange::Unchanged => false,
+        }
     }
 
     pub fn begin_suggestion(&self) -> Option<SuggestionRequest> {
@@ -52,6 +69,7 @@ impl SuggestionSession {
         let snapshot = data.snapshot.clone()?;
         data.generation += 1;
         data.correction = None;
+        data.open_suggestion_text = Some(snapshot.text.clone());
         Some(SuggestionRequest {
             generation: data.generation,
             snapshot,
@@ -75,6 +93,7 @@ impl SuggestionSession {
         let mut data = self.locked();
         let process_id = data.snapshot.as_ref()?.process_id;
         let text = data.correction.take()?;
+        data.open_suggestion_text = None;
         Some(Replacement { process_id, text })
     }
 
@@ -82,6 +101,7 @@ impl SuggestionSession {
         let mut data = self.locked();
         data.generation += 1;
         data.correction = None;
+        data.open_suggestion_text = None;
     }
 }
 
@@ -132,5 +152,36 @@ mod tests {
         let request = session.begin_suggestion().unwrap();
         session.discard_suggestion();
         assert!(!session.is_current(request.generation));
+    }
+
+    #[test]
+    fn an_open_suggestion_survives_the_selection_being_lost_and_found_again() {
+        let session = SuggestionSession::default();
+        session.remember_selection(snapshot());
+        session.begin_suggestion().unwrap();
+        assert!(session.keeps_suggestion_open(&SelectionChange::Cleared));
+        assert!(session.keeps_suggestion_open(&SelectionChange::Appeared(snapshot())));
+    }
+
+    #[test]
+    fn a_different_selection_replaces_an_open_suggestion() {
+        let session = SuggestionSession::default();
+        session.remember_selection(snapshot());
+        session.begin_suggestion().unwrap();
+        let other = SelectionSnapshot {
+            text: "another text".to_string(),
+            ..snapshot()
+        };
+        assert!(!session.keeps_suggestion_open(&SelectionChange::Appeared(other)));
+    }
+
+    #[test]
+    fn a_closed_suggestion_follows_the_selection() {
+        let session = SuggestionSession::default();
+        session.remember_selection(snapshot());
+        assert!(!session.keeps_suggestion_open(&SelectionChange::Cleared));
+        session.begin_suggestion().unwrap();
+        session.discard_suggestion();
+        assert!(!session.keeps_suggestion_open(&SelectionChange::Cleared));
     }
 }

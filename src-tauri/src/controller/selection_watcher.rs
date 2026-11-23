@@ -37,6 +37,9 @@ fn apply_change(
     session: &SuggestionSession,
     change: SelectionChange,
 ) -> PennaResult<()> {
+    if session.keeps_suggestion_open(&change) {
+        return Ok(());
+    }
     match change {
         SelectionChange::Appeared(snapshot) => {
             tracing::info!(
