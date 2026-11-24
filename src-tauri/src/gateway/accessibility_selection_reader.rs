@@ -4,12 +4,12 @@ use std::ptr;
 
 use accessibility_sys::{
     kAXBoundsForRangeParameterizedAttribute, kAXErrorSuccess, kAXFocusedApplicationAttribute,
-    kAXFocusedUIElementAttribute, kAXFrontmostAttribute, kAXSelectedTextAttribute,
-    kAXSelectedTextRangeAttribute, kAXTrustedCheckOptionPrompt, kAXValueTypeCGRect,
-    AXIsProcessTrusted, AXIsProcessTrustedWithOptions, AXUIElementCopyAttributeValue,
-    AXUIElementCopyParameterizedAttributeValue, AXUIElementCreateApplication,
-    AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef, AXUIElementSetAttributeValue,
-    AXValueGetValue, AXValueRef,
+    kAXFocusedUIElementAttribute, kAXFrontmostAttribute, kAXParentAttribute, kAXRoleAttribute,
+    kAXSelectedTextAttribute, kAXSelectedTextRangeAttribute, kAXTrustedCheckOptionPrompt,
+    kAXValueTypeCGRect, AXIsProcessTrusted, AXIsProcessTrustedWithOptions,
+    AXUIElementCopyAttributeValue, AXUIElementCopyParameterizedAttributeValue,
+    AXUIElementCreateApplication, AXUIElementCreateSystemWide, AXUIElementGetPid, AXUIElementRef,
+    AXUIElementSetAttributeValue, AXValueGetValue, AXValueRef,
 };
 use core_foundation::base::{CFType, CFTypeRef, FromVoid, TCFType};
 use core_foundation::boolean::CFBoolean;
@@ -29,6 +29,10 @@ use crate::model::selection::{ScreenPoint, SelectionReading, SelectionSnapshot};
 
 const BROWSER_ACCESSIBILITY_ATTRIBUTES: [&str; 2] =
     ["AXManualAccessibility", "AXEnhancedUserInterface"];
+const SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXSelectedTextMarkerRange";
+const STRING_FOR_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXStringForTextMarkerRange";
+const BOUNDS_FOR_TEXT_MARKER_RANGE_ATTRIBUTE: &str = "AXBoundsForTextMarkerRange";
+const MAX_ANCESTORS_SEARCHED_FOR_WEB_SELECTION: usize = 8;
 
 pub fn request_permission_prompt() -> bool {
     let prompt_key = unsafe { CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt) };
@@ -103,22 +107,23 @@ impl SelectionReader for AccessibilitySelectionReader {
         let Some(focused) = application.element(kAXFocusedUIElementAttribute) else {
             return self.unreadable(format!("process {process_id} exposes no focused element"));
         };
-        let Some(text) = focused.text(kAXSelectedTextAttribute) else {
+        let Some(selection) = focused.selection() else {
+            let role = focused.text(kAXRoleAttribute).unwrap_or_default();
             return self.unreadable(format!(
-                "process {process_id} focused element has no selected text attribute"
+                "process {process_id} focused element ({role}) exposes no selected text"
             ));
         };
-        if text.trim().is_empty() {
+        if !selection.has_text() {
             self.last_diagnostic = None;
             return Ok(SelectionReading::NothingSelected);
         }
-        let anchor = match focused.selection_bounds() {
+        let anchor = match selection.bounds {
             Some(bounds) if bounds.is_usable() => bounds.bottom_right(),
             _ => mouse_location()?,
         };
         Ok(SelectionReading::Selected(SelectionSnapshot {
             process_id,
-            text,
+            text: selection.text,
             anchor,
         }))
     }
@@ -146,6 +151,26 @@ impl Bounds {
             x: self.x + self.width,
             y: self.y + self.height,
         }
+    }
+}
+
+struct ElementSelection {
+    text: String,
+    bounds: Option<Bounds>,
+}
+
+impl ElementSelection {
+    fn read(text: String, read_bounds: impl FnOnce() -> Option<Bounds>) -> Self {
+        let bounds = if text.trim().is_empty() {
+            None
+        } else {
+            read_bounds()
+        };
+        Self { text, bounds }
+    }
+
+    fn has_text(&self) -> bool {
+        !self.text.trim().is_empty()
     }
 }
 
@@ -197,21 +222,24 @@ impl AxElement {
         (status == kAXErrorSuccess).then_some(process_id)
     }
 
-    fn selection_bounds(&self) -> Option<Bounds> {
-        let range = self.attribute(kAXSelectedTextRangeAttribute)?;
+    fn parameterized_attribute(&self, name: &str, parameter: &CFType) -> Option<CFType> {
         let mut value: CFTypeRef = ptr::null();
         let status = unsafe {
             AXUIElementCopyParameterizedAttributeValue(
                 self.raw(),
-                CFString::new(kAXBoundsForRangeParameterizedAttribute).as_concrete_TypeRef(),
-                range.as_CFTypeRef(),
+                CFString::new(name).as_concrete_TypeRef(),
+                parameter.as_CFTypeRef(),
                 &mut value,
             )
         };
         if status != kAXErrorSuccess || value.is_null() {
             return None;
         }
-        let value = unsafe { CFType::wrap_under_create_rule(value) };
+        Some(unsafe { CFType::wrap_under_create_rule(value) })
+    }
+
+    fn bounds_for(&self, parameterized_attribute: &str, parameter: &CFType) -> Option<Bounds> {
+        let value = self.parameterized_attribute(parameterized_attribute, parameter)?;
         let mut bounds = Bounds::default();
         let read = unsafe {
             AXValueGetValue(
@@ -221,6 +249,44 @@ impl AxElement {
             )
         };
         read.then_some(bounds)
+    }
+
+    fn selection(&self) -> Option<ElementSelection> {
+        let direct = self.direct_selection();
+        if direct.as_ref().is_some_and(ElementSelection::has_text) {
+            return direct;
+        }
+        self.web_selection().or(direct)
+    }
+
+    fn direct_selection(&self) -> Option<ElementSelection> {
+        let text = self.text(kAXSelectedTextAttribute)?;
+        Some(ElementSelection::read(text, || {
+            let range = self.attribute(kAXSelectedTextRangeAttribute)?;
+            self.bounds_for(kAXBoundsForRangeParameterizedAttribute, &range)
+        }))
+    }
+
+    fn web_selection(&self) -> Option<ElementSelection> {
+        let mut candidate = AxElement(self.0.clone());
+        for _ in 0..=MAX_ANCESTORS_SEARCHED_FOR_WEB_SELECTION {
+            if let Some(selection) = candidate.marker_selection() {
+                return Some(selection);
+            }
+            candidate = candidate.element(kAXParentAttribute)?;
+        }
+        None
+    }
+
+    fn marker_selection(&self) -> Option<ElementSelection> {
+        let range = self.attribute(SELECTED_TEXT_MARKER_RANGE_ATTRIBUTE)?;
+        let text = self
+            .parameterized_attribute(STRING_FOR_TEXT_MARKER_RANGE_ATTRIBUTE, &range)?
+            .downcast::<CFString>()?
+            .to_string();
+        Some(ElementSelection::read(text, || {
+            self.bounds_for(BOUNDS_FOR_TEXT_MARKER_RANGE_ATTRIBUTE, &range)
+        }))
     }
 
     fn set_boolean(&self, name: &str, value: bool) -> i32 {
